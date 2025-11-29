@@ -1,39 +1,53 @@
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
+import numpy as np
+import pandas as pd
+
 from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
 from sklearn.pipeline import Pipeline
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
-import xgboost as xgb
+from sklearn.impute import SimpleImputer
+
+from xgboost import XGBClassifier
+
+from feature_transformer import FeatureEngineer
 
 
 def build_preprocessor(X):
-    num_cols = X.select_dtypes(include=['int64','float64']).columns.tolist()
-    cat_cols = X.select_dtypes(include=['object','category']).columns.tolist()
+    """
+    Builds the preprocessing pipeline:
+    - FeatureEngineer
+    - Numerical scaling
+    - Categorical encoding
+    """
 
-    high_card = [c for c in cat_cols if X[c].nunique() > 20]
-    low_card = [c for c in cat_cols if c not in high_card]
+    # Identify column types
+    num_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    cat_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
 
-    num_pipe = Pipeline([
+    # Determine low & high cardinality categorical columns
+    low_card = [c for c in cat_cols if X[c].nunique() <= 20]
+    high_card = [c for c in cat_cols if c not in low_card]
+
+    # --- Pipelines ---
+    num_pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler())
     ])
 
-    low_cat = Pipeline([
-        ('imputer', SimpleImputer(strategy='constant', fill_value='MISSING')),
-        ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+    low_cat_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('ohe', OneHotEncoder(handle_unknown='ignore'))
     ])
 
-    high_cat = Pipeline([
-        ('imputer', SimpleImputer(strategy='constant', fill_value='MISSING')),
-        ('ord', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1))
+    high_cat_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('ordinal', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1))
     ])
 
     preprocessor = ColumnTransformer(
         transformers=[
-            ('num', num_pipe, num_cols),
-            ('low_cat', low_cat, low_card),
-            ('high_cat', high_cat, high_card)
+            ('num', num_pipeline, num_cols),
+            ('low_cat', low_cat_pipeline, low_card),
+            ('high_cat', high_cat_pipeline, high_card)
         ],
         remainder='drop'
     )
@@ -42,23 +56,34 @@ def build_preprocessor(X):
 
 
 
-def build_model(preprocessor):
-    # 🔥 Hyper-Tuned XGBoost Model
-    xgb_best = xgb.XGBClassifier(
-        eval_metric='logloss',
-        learning_rate=0.1,
+def build_model(X):
+    """
+    Builds full ML pipeline including:
+    - Feature Engineering
+    - Preprocessing
+    - Tuned XGBoost model
+    """
+
+    preprocessor = build_preprocessor(X)
+
+    # Your tuned hyperparameters (already proven best)
+    tuned_xgb = XGBClassifier(
         n_estimators=300,
         max_depth=9,
+        learning_rate=0.1,
         subsample=0.6,
         colsample_bytree=1.0,
         gamma=1,
-        random_state=42
+        eval_metric="logloss",
+        random_state=42,
+        n_jobs=-1
     )
 
-    pipeline = ImbPipeline([
-        ('preprocessor', preprocessor),
-        ('smote', SMOTE(random_state=42)),
-        ('clf', xgb_best)
+    # Final full pipeline
+    pipeline = Pipeline([
+        ('features', FeatureEngineer()),   # NEW: inject all feature engineering
+        ('preprocess', preprocessor),
+        ('model', tuned_xgb)
     ])
 
     return pipeline
