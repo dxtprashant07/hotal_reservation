@@ -5,8 +5,4 @@ xgboost==1.7.6
 imbalanced-learn==0.12.3
 streamlit==1.36.0
 joblib==1.4.2
-<<<<<<< HEAD
 matplotlib==3.9.2
-=======
-matplotlib==3.9.2
->>>>>>> 2daf7fb (impovement)
